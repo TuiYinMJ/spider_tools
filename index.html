@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Spider Lab · 爬虫与 JS 逆向工具箱</title>
+<meta name="description" content="爬虫与 JS 逆向工程师的本地抓包分析与逆向辅助工具箱：JSON/JS/HTML 格式化、cURL 转代码、JS 反混淆、环境扫描、Hook 脚本生成、URL 批处理、正则提取、文本对比、加解密。输入在浏览器本地处理、不主动上传；大文件走 Worker 与虚拟滚动。">
+<meta name="color-scheme" content="dark light">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230b0e14'/%3E%3Cpath d='M32 16v32M16 32h32M20 20l24 24M44 20L20 44' stroke='%234f8cff' stroke-width='4' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='32' r='7' fill='%23ff7a45'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="assets/css/app.css">
+</head>
+<body>
+
+<div class="app" id="app">
+  <aside class="sidebar" id="sidebar" aria-label="工具导航">
+    <div class="sb-head">
+      <a class="brand" href="#/">
+        <span class="brand-mark">🕷</span>
+        <span class="brand-text"><b>Spider Lab</b><i>爬虫 × 逆向 工具箱</i></span>
+      </a>
+      <button class="icon-btn sb-collapse" id="sb-collapse" title="收起侧栏（Ctrl+B）">«</button>
+      <button class="icon-btn sb-close" id="sb-close" title="收起侧栏">✕</button>
+    </div>
+
+    <div class="sb-search">
+      <span class="sb-search-icon">⌕</span>
+      <input id="q" type="search" placeholder="搜索工具、关键词…" autocomplete="off" spellcheck="false" aria-label="搜索工具">
+      <kbd class="sb-kbd">/</kbd>
+    </div>
+
+    <nav class="sb-nav" id="nav"></nav>
+
+    <div class="sb-foot">
+      <button class="btn tiny" id="theme-btn" title="切换浅色 / 深色主题">◐ 主题</button>
+      <button class="btn tiny" id="help-btn" title="快捷键与使用说明">? 帮助</button>
+      <span class="sb-mode" id="exec-mode" title="执行模式">…</span>
+    </div>
+  </aside>
+
+  <div class="scrim" id="scrim"></div>
+
+  <main class="main" id="main">
+    <header class="topbar">
+      <button class="icon-btn burger" id="burger" title="打开工具列表">☰</button>
+      <button class="icon-btn pins-board-btn" id="pins-board-btn" title="钉子板：跨工具暂存的中间结果（输出区 📌 钉入）">📌</button>
+      <nav class="crumbs" id="crumbs"></nav>
+      <span class="top-spacer"></span>
+      <span class="top-hint">
+        <kbd>⌃⏎</kbd> 运行
+        <kbd>/</kbd> 搜索
+        <kbd>?</kbd> 帮助
+      </span>
+    </header>
+    <div class="host" id="host"></div>
+  </main>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script>
+  /* Worker 里需要 importScripts 的库（顺序敏感：后面的依赖前面的） */
+  window.__SK_LIBS__ = [
+    'assets/js/core/dom.js',
+    'assets/js/core/registry.js',
+    'assets/js/lib/io.js',
+    'assets/js/lib/crypto.js',
+    'assets/js/lib/beautify.js',
+    'assets/js/lib/jsonx.js',
+    'assets/js/lib/codefmt.js',
+    'assets/js/lib/diff.js',
+    'assets/js/lib/net.js',
+    'assets/js/lib/genkit.js',
+    'assets/js/lib/gbkenc.js',
+    'assets/js/vendor/acorn.js',
+    'assets/js/vendor/terser.js',
+    'assets/js/vendor/lossless-json.js',
+    'assets/js/tools/hooklib.js',
+    'assets/js/tools/har.js',
+    'assets/js/tools/androidlib.js',
+    'assets/js/tools/font.js',
+    'assets/js/lib/crypto2.js'
+  ];
+</script>
+
+<!-- 第三方解析器（本地内置，离线可用）：acorn 用于 AST 级变换，Terser 用于 JS 美化/压缩，
+     lossless-json 用于大整数保真的 JSON 解析 -->
+<script src="assets/js/vendor/acorn.js"></script>
+<script src="assets/js/vendor/terser.js"></script>
+<script src="assets/js/vendor/lossless-json.js"></script>
+
+<!-- 底层库：纯计算，无 DOM 依赖，可在 Worker 中复用 -->
+<script src="assets/js/lib/io.js"></script>
+<script src="assets/js/lib/crypto.js"></script>
+<script src="assets/js/lib/beautify.js"></script>
+<script src="assets/js/lib/jsonx.js"></script>
+<script src="assets/js/lib/codefmt.js"></script>
+<script src="assets/js/lib/diff.js"></script>
+<script src="assets/js/lib/net.js"></script>
+<script src="assets/js/lib/genkit.js"></script>
+<script src="assets/js/lib/gbkenc.js"></script>
+<script src="assets/js/lib/crypto2.js"></script>
+
+<!-- 核心运行时 -->
+<script src="assets/js/core/dom.js"></script>
+<script src="assets/js/core/registry.js"></script>
+<script src="assets/js/core/store.js"></script>
+<script src="assets/js/core/highlight.js"></script>
+<script src="assets/js/core/viewer.js"></script>
+<script src="assets/js/core/render.js"></script>
+<script src="assets/js/core/options.js"></script>
+<script src="assets/js/core/editor.js"></script>
+<script src="assets/js/core/pins.js"></script>
+<script src="assets/js/core/worker.js"></script>
+<script src="assets/js/core/samples.js"></script>
+<script src="assets/js/core/panel.js"></script>
+
+<!-- 工具集 -->
+<script src="assets/js/tools/hooklib.js"></script>
+<script src="assets/js/tools/androidlib.js"></script>
+<script src="assets/js/tools/android.js"></script>
+<script src="assets/js/tools/pc.js"></script>
+<script src="assets/js/tools/pc2.js"></script>
+<script src="assets/js/tools/har.js"></script>
+<script src="assets/js/tools/hashid.js"></script>
+<script src="assets/js/tools/oracle.js"></script>
+<script src="assets/js/tools/crawl.js"></script>
+<script src="assets/js/tools/format.js"></script>
+<script src="assets/js/tools/convert.js"></script>
+<script src="assets/js/tools/url.js"></script>
+<script src="assets/js/tools/compare.js"></script>
+<script src="assets/js/tools/text.js"></script>
+<script src="assets/js/tools/misc.js"></script>
+  <script src="assets/js/tools/extra.js"></script>
+<script src="assets/js/tools/reverse.js"></script>
+<script src="assets/js/tools/verify.js"></script>
+<script src="assets/js/tools/webpack.js"></script>
+<script src="assets/js/tools/font.js"></script>
+<script src="assets/js/tools/wasm.js"></script>
+<script src="assets/js/tools/memscan.js"></script>
+<script src="assets/js/tools/antiantidebug.js"></script>
+<script src="assets/js/tools/heapsnap.js"></script>
+<script src="assets/js/tools/dev.js"></script>
+<script src="assets/js/tools/spider.js"></script>
+
+<script src="assets/js/tools/recipes.js"></script>
+
+<!-- 应用外壳 -->
+<script src="assets/js/app.js"></script>
+</body>
+</html>
