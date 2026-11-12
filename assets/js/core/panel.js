@@ -60,6 +60,34 @@
     });
     return restored;
   }
+  /* 工具有没有任何一份可填的样例：没有样例时 ✨ 点了只会弹「没有内置示例」，
+     输入区不该放一个永远点不出东西的按钮 */
+  function hasAnySample(tool) {
+    if (tool.sample) return true;
+    return (tool.inputs || []).some(function (s) {
+      return !!(s && s.sample);
+    });
+  }
+
+  /* 空输出区的提示以前一律写「点 ✨ 看示例」；速查/脚本生成类工具没有样例，
+     二进制工具也不该说「粘贴数据」。按输入形态给出更准确的下一步。 */
+  function idleMessage(tool) {
+    if (tool.idleText) return tool.idleText;
+    const ins = tool.inputs || [];
+    const anySample = hasAnySample(tool);
+    const binaryMain = ins.some(function (s) {
+      return s && s.binary && !s.small;
+    });
+    const allOptional = ins.length && (!!tool.allowEmpty || ins.every(function (s) { return s && s.allowEmpty; }));
+    let msg;
+    if (!ins.length) msg = '可以直接运行';
+    else if (binaryMain) msg = '把文件拖进左侧输入框后运行';
+    else if (allOptional) msg = '可以直接运行；也可以在左侧填入参数';
+    else msg = '把数据放进左侧输入框后运行';
+    if (anySample) msg += '，或点右上角 ✨ 看示例';
+    return msg;
+  }
+
   function makeInput(spec, tool, ctx) {
     const body = el('div', { class: 'pane-body' });
     const ed = SK.editor.create(body, { label: spec.label || '输入', placeholder: spec.placeholder || '', binary: !!spec.binary, onChange: () => ctx.touch() });
@@ -79,21 +107,28 @@
         }, 700);
       });
     }
+    /* 输入框右上角的动作以前只有 6 个无文字图标：第一次用根本分不清「历史 / 插入 / 常用值」。
+       保留紧凑尺寸，但每个动作带一个短标签，悬停仍有完整说明。 */
+    const actBtn = (ico, label, title, onClick) =>
+      el('button', { class: 'icon-btn icon-label', title, onClick }, [
+        el('span', { class: 'il-ico', text: ico }),
+        el('span', { class: 'il-txt', text: label }),
+      ]);
     const head = el('div', { class: 'pane-head' }, [
       el('span', { class: 'pane-title', text: spec.label || '输入' }),
       el('span', { class: 'pane-tag', text: spec.tag || '' }),
       el('span', { class: 'pane-spacer' }),
-      el('button', { class: 'icon-btn', text: '⟲', title: '最近输入（本框最近 3 次内容）', onClick: (e) => openInputHistory(e.target, tool, spec, ed, ctx) }),
-      el('button', { class: 'icon-btn', text: '📎', title: '插入钉住的内容（输出区 📌 钉的结果）', onClick: (e) => SK.pins.openPinPicker(e.target, ed) }),
-      el('button', { class: 'icon-btn', text: '🔑', title: '常用值：保存 / 插入 key、IV、UA 等高频输入', onClick: (e) => SK.pins.openSnipPicker(e.target, ed, spec, tool.id) }),
-      el('button', { class: 'icon-btn', text: '📂', title: '选择文件（也可直接拖拽/粘贴到编辑框）', onClick: () => ed.pickFile() }),
-      el('button', { class: 'icon-btn', text: '✨', title: '填入示例数据', onClick: () => ctx.fillSample(spec) }),
-      el('button', { class: 'icon-btn', text: '⌫', title: '清空（同时删除本框草稿）', onClick: () => {
-          ed.clear();
-          /* 清空必须连草稿一起删，否则下次进工具旧内容又被恢复出来 */
-          SK.store.remove('draft:' + tool.id + ':' + spec.id);
-          ctx.touch();
-        } }),
+      actBtn('⟲', '历史', '最近输入（本框最近 3 次内容）', (e) => openInputHistory(e.currentTarget, tool, spec, ed, ctx)),
+      actBtn('📎', '插入', '插入钉住的内容（输出区 📌 钉的结果）', (e) => SK.pins.openPinPicker(e.currentTarget, ed)),
+      actBtn('🔑', '常用值', '常用值：保存 / 插入 key、IV、UA 等高频输入', (e) => SK.pins.openSnipPicker(e.currentTarget, ed, spec, tool.id)),
+      actBtn('📂', '文件', '选择文件（也可直接拖拽/粘贴到编辑框）', () => ed.pickFile()),
+      hasAnySample(tool) ? actBtn('✨', '示例', '填入示例数据', () => ctx.fillSample(spec)) : null,
+      actBtn('⌫', '清空', '清空（同时删除本框草稿）', () => {
+        ed.clear();
+        /* 清空必须连草稿一起删，否则下次进工具旧内容又被恢复出来 */
+        SK.store.remove('draft:' + tool.id + ':' + spec.id);
+        ctx.touch();
+      }),
     ]);
     const pane = el('section', { class: 'pane pane-in' + (spec.small ? ' small' : '') }, [head, body]);
     return { pane, ed, spec };
@@ -299,13 +334,13 @@
       outBody.appendChild(
         el('div', { class: 'out-idle' }, [
           el('div', { class: 'oi-icon', text: tool.icon || '⌁' }),
-          el('p', { text: tool.idleText || '粘贴数据后运行，或点右上角 ✨ 看示例' }),
+          el('p', { text: idleMessage(tool) }),
           tool.hint ? el('p', { class: 'oi-sub', text: tool.hint }) : null,
         ])
       );
     }
 
-    runBtn.addEventListener('click', () => run());
+    runBtn.addEventListener('click', () => run(true));
     cancelBtn.addEventListener('click', () => {
       SK.exec.cancel(state.taskId);
       SK.ui.toast('已停止（线程重启中）', 'warn');
@@ -320,14 +355,16 @@
       run();
     }, 460);
 
-    host.addEventListener('tool-run', () => run());
+    host.addEventListener('tool-run', (e) => run(!!(e.detail && e.detail.showOutput)));
     const keyHandler = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-        /* B14：编辑框内部已自行派发 tool-run，这里再跑一次会触发两遍 */
+        /* 只有标准编辑框（.eg-area）自己派发 tool-run，避免跑两遍；
+           选项栏里的 input / select 不处理快捷键，这里必须接着运行。
+           旧实现把 host 内所有 INPUT/TEXTAREA 都跳过，导致焦点在选项输入框时 ⌃⏎ 失效。 */
         const t = e.target;
-        if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT') && host.contains(t)) return;
+        if (t && t.tagName === 'TEXTAREA' && t.classList.contains('eg-area') && host.contains(t)) return;
         e.preventDefault();
-        run();
+        run(true);
       }
     };
     if (!tool.hideRun) document.addEventListener('keydown', keyHandler);
@@ -354,7 +391,38 @@
           : '这个工具的解析/转换在 Web Worker 里跑，不阻塞界面';
     }
 
-    function fillSample(spec) {
+    function fillSample(spec, force) {
+      /* 点击 ✨ 前先检查：不要把用户已经填好的数据无提示覆盖掉。
+         只有「注册表声明的默认参数值」视为空；用户改过的小参数也会触发确认。 */
+      if (!force) {
+        const hasData = inputs.some(function (inp) {
+          const v = inp.ed.getValue();
+          if (v.kind !== 'text') return true;
+          const text = (v.text || '').trim();
+          if (!text) return false;
+          /* 输入框里只是注册表声明的默认参数（如 JSONPath 的 $.data.list[*].id）不算用户数据 */
+          if (inp.spec.value !== undefined && String(inp.spec.value) === text) return false;
+          return true;
+        });
+        if (hasData) {
+          SK.ui.openModal({
+            title: '替换当前输入？',
+            body: el('div', {}, [
+              el('p', { text: '示例数据会覆盖输入框里已有的内容。建议先把当前内容复制，或钉到钉子板。' }),
+              el('p', { class: 'out-hint', text: '覆盖后仍可通过输入框右上角的「历史」找回最近运行过的输入。' }),
+            ]),
+            actions: [
+              { label: '取消' },
+              { label: '覆盖并填入', primary: true, onClick: (close) => { close(); applySample(spec); } },
+            ],
+          });
+          return;
+        }
+      }
+      applySample(spec);
+    }
+
+    function applySample(spec) {
       /* 条件样例：sample 为 {by, map, default} 时按当前选项值取键（如 js-env 按模式切 dump/源码） */
       const resolveKey = (s) => {
         if (s && typeof s === 'object' && s.by) {
@@ -402,7 +470,7 @@
       else if (missing > 0) SK.ui.toast('已填入示例，还差 ' + missing + ' 个输入请补齐后再运行', 'info');
     }
 
-    async function run() {
+    async function run(showOutput) {
       if (state.running) return;
       if (tool.custom && tool.needsRun === false) return tool.mount(ctx);
       /* B14：在任何 await 之前先锁定运行状态。旧实现先 await resolveValue 再置位，
@@ -452,6 +520,7 @@
         /* 只在真正成功时留存：软失败（返回 {error}）不能覆盖上一次的好结果 */
         if (!(res && res.error)) state.lastResult = res;
         renderResult(res);
+        if (showOutput && !(res && res.error)) revealOutput();
       } catch (e) {
         state.lastMs = performance.now() - t0;
         showError(e);
@@ -519,6 +588,17 @@
         );
       }
       SK.app.markError(tool.id);
+    }
+
+    /* 窄屏（输入/输出上下堆叠）运行成功后输出常在屏幕外：
+       自动滚到输出区一次，避免用户以为「点了运行没反应」 */
+    function revealOutput() {
+      if (!root.matchMedia || !root.matchMedia('(max-width: 1180px)').matches) return;
+      requestAnimationFrame(() => {
+        const r = outPane.getBoundingClientRect();
+        const vh = root.innerHeight || document.documentElement.clientHeight;
+        if (r.top > vh - 90) outPane.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
     }
 
     function renderResult(res) {
@@ -653,7 +733,7 @@
       }
     }
 
-    if (tool.autoSample) fillSample(inputs[0] ? inputs[0].spec : null);
+    if (tool.autoSample) fillSample(inputs[0] ? inputs[0].spec : null, true);
 
     /* autoExec：速查/生成类工具打开即出结果，不用手点运行 */
     if (tool.autoExec) run();

@@ -236,6 +236,16 @@
       { id: 'ua', type: 'select', label: 'User-Agent', value: '*', choices: [{ v: '*', label: '* 通用' }, { v: 'googlebot', label: 'Googlebot' }, { v: 'baiduspider', label: 'Baiduspider' }, { v: 'bingbot', label: 'Bingbot' }] },
       { id: 'path', type: 'text', label: '测试路径', value: '', placeholder: '/item/123' },
     ],
+    hint: '测试路径可填 /item/123；规则按最长匹配优先，Allow 与 Disallow 等长时 Allow 生效',
+    help:
+      '<h4>怎么读</h4>' +
+      '<p>按选中的 User-Agent 找规则组：先找名字包含该 UA 的组，找不到才退回 <code>*</code>。同一 UA 命中多个组时按 RFC 9309 合并规则。Disallow 为空表示不禁止任何路径。</p>' +
+      '<h4>路径匹配</h4>' +
+      '<ul><li><code>*</code> 匹配任意字符序列，<code>$</code> 表示结尾锚点</li>' +
+      '<li>前缀匹配即可命中，最长规则优先；等长时 Allow 胜出</li>' +
+      '<li>无规则命中默认允许</li></ul>' +
+      '<p>顺带解析 Crawl-delay、Sitemap 和 Clean-param；Crawl-delay 会在结果里提示采集频率。</p>' +
+      '<p><b>边界</b>：robots.txt 是站点声明，不是法律或访问控制；实际抓取频率、账号态、接口权限仍需自己控制。</p>',
     handler: function (input, opts) {
       const text = String(input == null ? '' : input);
       const lines = text.split('\n').map((l) => l.replace(/#.*$/, '').trim()).filter(Boolean);
@@ -531,6 +541,14 @@
       { id: 'from', type: 'select', label: '原编码', value: 'auto', choices: [{ v: 'auto', label: '自动尝试' }, { v: 'latin1', label: 'latin1 / iso-8859-1' }, { v: 'gbk', label: 'GBK / GB2312' }, { v: 'gbk-reverse', label: '反修复（UTF8被当GBK显示）' }, { v: 'big5', label: 'BIG5' }, { v: 'utf8', label: 'UTF-8' }] },
       { id: 'to', type: 'select', label: '目标', value: 'utf8', choices: [{ v: 'utf8', label: 'UTF-8 文本' }, { v: 'hex', label: '十六进制字节' }, { v: 'base64', label: 'Base64' }] },
     ],
+    hint: '不确定乱码形态时保持「自动尝试」，候选表会按常见汉字命中率排序',
+    help:
+      '<h4>三种常见乱码</h4>' +
+      '<ul><li><b>UTF-8 被当 latin1</b>：看起来像 <code>æµ‹è¯•</code>，选「latin1」或自动</li>' +
+      '<li><b>GBK 页面被当 UTF-8</b>：出现大量 � 或拉丁扩展字符，选「GBK / GB2312」</li>' +
+      '<li><b>UTF-8 被当 GBK 显示</b>：汉字里夹生僻字，如 <code>娴嬭瘯</code> → <code>测试</code>，选「反修复」或自动</li></ul>' +
+      '<p>「自动尝试」会同时列出 UTF-8 / GBK / BIG5 / 反修复的候选，按现代汉语高频字命中率排序；仍像乱码时切「原编码」或分段处理。目标可选还原成文本、hex 或 base64 字节。</p>' +
+      '<p><b>边界</b>：需要原始字节被完整保留成 latin1 可见字符；如果抓包工具已经把字节替换成 �，不可逆。</p>',
     handler: function (input, opts) {
       const raw = String(input == null ? '' : input);
       if (!raw) return { error: '输入为空' };

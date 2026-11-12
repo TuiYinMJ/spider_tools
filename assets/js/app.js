@@ -38,6 +38,7 @@
     marks: Object.create(null),
     leave: [],
     lastRoute: '',
+    hitIndex: 0,
   };
 
   /* ========================================================== 对外 API */
@@ -92,7 +93,10 @@
 
   /* ========================================================== 侧栏收起（桌面端） */
   function collapseInit() {
-    if (SK.store.get('sbCollapsed', false)) appEl.classList.add('sb-collapsed');
+    const on = !!SK.store.get('sbCollapsed', false);
+    if (on) appEl.classList.add('sb-collapsed');
+    const btn = $('#sb-collapse');
+    if (btn) btn.textContent = on ? '»' : '«';
   }
 
   function isMobileWidth() {
@@ -125,16 +129,24 @@
 
   function toolItem(tool) {
     const favs = SK.store.get('fav', []);
-    const btn = el('button', {
+    const searching = !!state.query.trim();
+    const info = el('span', { class: 'sb-info' }, [
+      el('span', { class: 'sb-name', text: tool.name }),
+      /* 搜索结果补充分组和一句话说明：同名工具（JSON 格式化 / JSON 对比）才有区分度 */
+      searching ? el('span', { class: 'sb-sub', text: SK.tools.groupName(tool.group) + ' · ' + (tool.desc || '') }) : null,
+    ]);
+    return el('button', {
       class: 'sb-item' + (state.active === tool.id ? ' on' : '') + (favs.includes(tool.id) ? ' fav' : ''),
       dataset: { id: tool.id, mark: state.marks[tool.id] || '' },
       title: (tool.desc || tool.name) + '\n#' + tool.id,
-      onClick: () => app.go(tool.id),
+      onClick: () => {
+        if (state.query) resetSearch();
+        app.go(tool.id);
+      },
     }, [
       el('span', { class: 'sb-ico', text: GROUP_ICON[tool.group] || (tool.icon || '·').slice(0, 2) }),
-      el('span', { class: 'sb-name', text: tool.name }),
+      info,
     ]);
-    return btn;
   }
 
   function groupBlock(name, count, tools, key) {
@@ -185,6 +197,10 @@
         return;
       }
       navEl.appendChild(groupBlock('搜索结果', hits.length, hits));
+      navEl.appendChild(el('div', { class: 'sb-hit-hint', text: '↑↓ 选择 · Enter 打开 · Esc 清空' }));
+      state.hitIndex = 0;
+      const first = navEl.querySelector('.sb-item');
+      if (first) first.classList.add('kbd');
       return;
     }
 
@@ -208,6 +224,27 @@
   function paintMark(id) {
     const node = navEl.querySelector('.sb-item[data-id="' + id + '"]');
     if (node) node.dataset.mark = state.marks[id] || '';
+  }
+
+  function moveSearchHit(delta) {
+    const items = [...navEl.querySelectorAll('.sb-item')];
+    if (!items.length) return;
+    state.hitIndex = SK.dom.clamp((state.hitIndex || 0) + delta, 0, items.length - 1);
+    items.forEach((n, i) => n.classList.toggle('kbd', i === state.hitIndex));
+    items[state.hitIndex].scrollIntoView({ block: 'nearest' });
+  }
+
+  function searchHitId() {
+    const items = [...navEl.querySelectorAll('.sb-item')];
+    return items.length ? items[SK.dom.clamp(state.hitIndex || 0, 0, items.length - 1)].dataset.id : '';
+  }
+
+  /* 选中结果后收起搜索：侧栏回到完整目录，避免进工具后只剩一条结果 */
+  function resetSearch() {
+    qEl.value = '';
+    state.query = '';
+    state.hitIndex = 0;
+    buildSidebar();
   }
 
   function setActive(id) {
@@ -285,16 +322,100 @@
       .filter(Boolean)
       .slice(0, 6);
 
+    /* 首页大搜索框：以前只有「回车跳到第一个结果」，用户看不到候选。
+       现在实时列出前 8 个命中工具（名称 / 分组 / 一句话说明），支持 ↑↓ 选择和 Enter 打开。 */
+    const heroSuggest = el('div', { class: 'hero-suggest' });
+    let heroHits = [];
+    let heroIdx = 0;
+
+    function heroHide() {
+      heroSuggest.classList.remove('open');
+    }
+
+    function heroItems() {
+      return [...heroSuggest.querySelectorAll('.hs-item')];
+    }
+
+    function heroSetActive(i) {
+      const items = heroItems();
+      if (!items.length) return;
+      heroIdx = SK.dom.clamp(i, 0, items.length - 1);
+      items.forEach((n, k) => n.classList.toggle('on', k === heroIdx));
+      items[heroIdx].scrollIntoView({ block: 'nearest' });
+    }
+
+    function heroPick(i) {
+      const hit = heroHits[i];
+      if (!hit) return;
+      heroHide();
+      app.go(hit.id);
+    }
+
+    function heroRender() {
+      const q = heroSearch.value.trim();
+      clear(heroSuggest);
+      heroHits = [];
+      heroIdx = 0;
+      if (!q) {
+        heroHide();
+        return;
+      }
+      heroHits = SK.tools.search(q).slice(0, 8);
+      if (!heroHits.length) {
+        heroSuggest.appendChild(el('div', { class: 'hs-empty', text: '没有匹配「' + q + '」的工具，试试 json / curl / 反混淆 / 正则' }));
+        heroSuggest.classList.add('open');
+        return;
+      }
+      heroHits.forEach((t, i) => {
+        heroSuggest.appendChild(
+          el('button', {
+            class: 'hs-item' + (i === 0 ? ' on' : ''),
+            type: 'button',
+            title: (t.desc || t.name) + '\n#' + t.id,
+            onMousedown: (e) => e.preventDefault(),
+            onClick: () => heroPick(i),
+          }, [
+            el('span', { class: 'hs-main' }, [
+              el('span', { class: 'hs-name', text: t.name }),
+              el('span', { class: 'hs-desc', text: t.desc || '' }),
+            ]),
+            el('span', { class: 'hs-meta', text: SK.tools.groupName(t.group) }),
+          ])
+        );
+      });
+      heroSuggest.classList.add('open');
+    }
+
+    const heroSearchLater = debounce(heroRender, 90);
+
     const heroSearch = el('input', {
       type: 'search',
       placeholder: '搜索工具：json、curl、反混淆、补环境、正则…',
       autocomplete: 'off',
+      onInput: heroSearchLater,
+      onFocus: () => {
+        if (heroSearch.value.trim()) heroRender();
+      },
+      onBlur: () => setTimeout(heroHide, 140),
       onKeydown: (e) => {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          if (!heroItems().length) heroRender();
+          if (!heroItems().length) return;
+          e.preventDefault();
+          heroSetActive(heroIdx + (e.key === 'ArrowDown' ? 1 : -1));
+          return;
+        }
         if (e.key === 'Enter') {
-          const hit = SK.tools.search(heroSearch.value)[0];
-          if (hit) app.go(hit.id);
-          else SK.ui.toast('没有匹配的工具', 'warn');
+          heroRender();
+          const hit = heroHits[heroIdx] || heroHits[0];
+          if (hit) {
+            heroHide();
+            app.go(hit.id);
+          } else if (heroSearch.value.trim()) {
+            SK.ui.toast('没有匹配的工具', 'warn');
+          }
         } else if (e.key === 'Escape') {
+          heroHide();
           heroSearch.value = '';
           heroSearch.blur();
         }
@@ -310,10 +431,13 @@
           'JS 反混淆与环境扫描、Hook 与断点表达式、URL 批处理、正则批量提取、文本与 JSON 对比、加解密与时间戳。' +
           '输入输出都在本机浏览器里处理，不经过任何服务端。',
       }),
-      el('div', { class: 'hero-search' }, [
-        el('span', { class: 'sb-search-icon', text: '⌕' }),
-        heroSearch,
-        el('kbd', { class: 'sb-kbd', text: '/' }),
+      el('div', { class: 'hero-search-wrap' }, [
+        el('div', { class: 'hero-search' }, [
+          el('span', { class: 'sb-search-icon', text: '⌕' }),
+          heroSearch,
+          el('kbd', { class: 'sb-kbd', text: '/' }),
+        ]),
+        heroSuggest,
       ]),
       el('div', { class: 'hero-stats' }, [
         hstat(String(SK.tools.registry.length), '个工具'),
@@ -600,6 +724,7 @@
       ['⌃⏎ / ⌘⏎', '运行当前工具'],
       ['⌃B / ⌘B', '收起 / 展开侧边栏'],
       ['/ 或 ⌘K / ⌃K', '聚焦搜索框（首页聚焦大搜索框）'],
+      ['↑ ↓', '在搜索结果 / 首页搜索建议里上下选择'],
       ['?', '打开这份帮助'],
       ['Esc', '关闭弹窗 / 收起侧栏'],
       ['⧉', '复制输出'],
@@ -655,16 +780,22 @@
     }, 110);
     qEl.addEventListener('input', onSearch);
     qEl.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        if (!qEl.value.trim()) return;
+        e.preventDefault();
+        moveSearchHit(e.key === 'ArrowDown' ? 1 : -1);
+        return;
+      }
       if (e.key === 'Enter') {
         const hit = SK.tools.search(qEl.value)[0];
-        if (hit) {
-          app.go(hit.id);
+        const id = (state.query === qEl.value ? searchHitId() : '') || (hit && hit.id);
+        if (id) {
+          app.go(id);
+          resetSearch();
           qEl.blur();
         }
       } else if (e.key === 'Escape') {
-        qEl.value = '';
-        state.query = '';
-        buildSidebar();
+        resetSearch();
         qEl.blur();
       }
     });
@@ -715,7 +846,11 @@
     // 首页把焦点交给大搜索框（用户视线所在），工具页用侧栏搜索框
     const hero = hostEl.classList.contains('home-mode') ? hostEl.querySelector('.hero-search input') : null;
     const target = hero || qEl;
-    if (!hero) appEl.classList.add('nav-open');
+    if (!hero) {
+      if (isMobileWidth()) appEl.classList.add('nav-open');
+      /* 桌面端侧栏收起时按下 / 会聚焦到一个宽 0 的隐藏输入框 —— 先展开再聚焦 */
+      else if (appEl.classList.contains('sb-collapsed')) toggleCollapse();
+    }
     if (!target) return;
     try {
       target.focus({ preventScroll: true });

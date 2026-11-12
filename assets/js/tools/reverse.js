@@ -97,15 +97,24 @@
     aliases: 'env 补环境 补环境检测 jsdom 环境检测 指纹 navigator',
     keywords: ['补环境', 'js逆向', '环境', 'navigator', 'webdriver', '指纹', 'jsdom'],
     desc: '扫描代码用到的 window/navigator/document/location 属性，列出检测点、生成补环境骨架，并支持真机 dump 与 Node dump 的属性级对照',
-    sample: 'js',
+    hint: '「骨架」模式贴 JS 源码；「环境对照 diff」模式两个框分别贴真机 dump 和 Node dump',
+    sample: { by: 'style', map: { diff: 'envDumpA', node: 'jsEnv', jsdom: 'jsEnv' }, default: 'jsEnv' },
     inputs: [
-      { id: 'in', label: 'JS 源码 / 环境A dump JSON（对照模式）', placeholder: '粘贴需要补环境的代码；对照模式贴真机 dump JSON', sample: { by: 'style', map: { diff: 'envDumpA', node: 'js', jsdom: 'js' }, default: 'js' } },
+      { id: 'in', label: 'JS 源码 / 环境A dump JSON（对照模式）', placeholder: '粘贴需要补环境的代码；对照模式贴真机 dump JSON', sample: { by: 'style', map: { diff: 'envDumpA', node: 'jsEnv', jsdom: 'jsEnv' }, default: 'jsEnv' } },
       { id: 'in2', label: '环境B dump JSON（对照模式用，Node 补环境那份）', placeholder: '{ "userAgent": "Mozilla...", ... }', small: true, allowEmpty: true, sample: 'envDumpB' },
     ],
     options: [
       { id: 'style', type: 'seg', label: '模式', value: 'node', choices: [{ v: 'node', label: '骨架' }, { v: 'jsdom', label: 'jsdom 骨架' }, { v: 'diff', label: '环境对照 diff' }] },
       { id: 'proxy', type: 'toggle', label: '加 Proxy 兜底', value: true, title: '未定义属性返回空字符串，避免 undefined 报错' },
     ],
+    help:
+      '<h4>先选模式</h4>' +
+      '<ul><li><b>骨架</b>：贴目标 JS，扫描 navigator/document/window 等属性，生成 Node 补环境代码</li>' +
+      '<li><b>jsdom 骨架</b>：同上，但生成 jsdom 版本（适合已有 DOM 逻辑）</li>' +
+      '<li><b>环境对照 diff</b>：两个框分别贴真机 dump JSON 和 Node dump JSON，逐属性列出缺失/多余/值不同</li></ul>' +
+      '<h4>怎么拿到 dump</h4>' +
+      '<p>先把工具里生成的「dump 对照脚本」在目标页和 Node 环境各跑一次，把输出的 JSON 贴回来。扫描只认 <code>navigator.xxx</code> / <code>document.xxx</code> 这类直接访问；压缩成 <code>var n=navigator</code> 的别名需要先反混淆。</p>' +
+      '<p>结果是静态候选和生成骨架，不保证目标页真实逻辑能一次跑通；补完属性后仍需在 Node 里实际执行验证。</p>',
     handler: function (input, input2, opts) {
       const text = String(input == null ? '' : input);
       const inputs1Text = String(input2 == null ? '' : input2);

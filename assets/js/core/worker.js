@@ -10,7 +10,50 @@
     mode: 'boot',
     restarts: 0,
     maxRestarts: 3,
+    initTimer: 0,
   };
+
+  function clearInitTimer() {
+    if (state.initTimer) {
+      clearTimeout(state.initTimer);
+      state.initTimer = 0;
+    }
+  }
+
+  /* 后台线程 8s 没有 ready 就判为启动失败：不把已排队的任务丢给用户重试，
+     直接在主线程序跑（与正式降级路径一致），避免界面永远停在「启动中…」。 */
+  function fallbackInline() {
+    if (state.broken || state.mode === 'inline') return;
+    state.broken = true;
+    state.ready = false;
+    state.mode = 'inline';
+    clearInitTimer();
+    shutdown();
+    const jobs = queue.splice(0);
+    jobs.forEach(function (job) {
+      const task = job.task;
+      clearTimeout(task.timer);
+      task.timer = 0;
+      task.mode = 'inline';
+      const id = ++state.seq;
+      task.id = id;
+      state.tasks.set(id, task);
+      if (job.onTask) job.onTask(id);
+      runInline({ code: job.msg.fn }, job.msg.args || [], job.opts || {}, task).then(
+        function (v) {
+          if (finishTask(id)) task.resolve(v);
+        },
+        function (e) {
+          if (finishTask(id)) task.reject(e);
+        }
+      );
+    });
+    try {
+      if (SK.ui && SK.ui.toast) {
+        SK.ui.toast('后台线程启动超时，已降级为主线程执行；大输入可能卡顿', 'warn');
+      }
+    } catch (e) {}
+  }
 
   function libUrls() {
     const list = root.__SK_LIBS__ || [];
@@ -41,6 +84,7 @@
             return;
           }
           if (m.failed && m.failed.length) console.warn('[SpiderLab] 部分库加载失败：', m.failed);
+          clearInitTimer();
           state.ready = true;
           state.mode = 'worker';
           flush();
@@ -64,7 +108,10 @@
       };
       w.postMessage({ type: 'init', libs: libUrls() });
       state.mode = 'boot';
+      clearInitTimer();
+      state.initTimer = setTimeout(fallbackInline, 8000);
     } catch (e) {
+      clearInitTimer();
       state.broken = true;
       state.ready = false;
       state.mode = 'inline';
@@ -96,6 +143,7 @@
   }
 
   function shutdown() {
+    clearInitTimer();
     if (state.worker) {
       try {
         state.worker.terminate();
@@ -176,7 +224,7 @@
 
       if (!state.worker) boot();
       if (!state.ready) {
-        queue.push({ msg: payload, task, reject, onTask: opts.onTask });
+        queue.push({ msg: payload, task, reject, onTask: opts.onTask, opts: opts });
         if (state.broken === false && !state.worker) boot();
       } else {
         dispatch({ msg: payload, task, reject, onTask: opts.onTask });

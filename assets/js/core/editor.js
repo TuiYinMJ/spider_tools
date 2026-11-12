@@ -176,7 +176,7 @@
       }
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
         e.preventDefault();
-        host.dispatchEvent(new CustomEvent('tool-run', { bubbles: true }));
+        host.dispatchEvent(new CustomEvent('tool-run', { bubbles: true, detail: { showOutput: true } }));
       }
     });
     ta.addEventListener('paste', (e) => {

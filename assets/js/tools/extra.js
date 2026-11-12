@@ -65,7 +65,7 @@
     hint: 'XXTEA 的密钥按 utf8 取前 16 字节循环填充；Base58 用比特币字母表',
     sample: 'texta',
     inputs: [
-      { id: 'in', label: '输入', placeholder: '要编码/解码的内容', sample: 'texta' },
+      { id: 'in', label: '文本 / 密文', placeholder: '要编码/解码的内容', sample: 'texta' },
       { id: 'key', label: 'XXTEA 密钥', placeholder: '选 XXTEA 时必填', small: true, allowEmpty: true },
     ],
     options: [
@@ -140,6 +140,15 @@
       { id: 'skipEmpty', type: 'toggle', label: '跳过空值参数', value: true },
       { id: 'encode', type: 'toggle', label: '先 URL 编码 value', value: false },
     ],
+    help:
+      '<h4>它算的是一条「标准签名链」</h4>' +
+      '<p>参数 → 过滤空值 → 排序 → 拼接 → 加 secret → 哈希。每一步都对应常见站点的变体：</p>' +
+      '<ul><li><b>排序</b>：key ASCII 升序最常见；有的站点按原顺序或 value 排序</li>' +
+      '<li><b>拼接</b>：<code>k=v&k=v</code>、无等号 <code>kv&kv</code>、只拼 value、紧凑 JSON</li>' +
+      '<li><b>密钥位置</b>：尾部 / 头部 / 不参与；HMAC 算法必须填 secret</li>' +
+      '<li><b>URL 编码 value</b>：有的站点先 encodeURIComponent 再拼</li></ul>' +
+      '<p>签名对不上时先换排序和拼接形态，不要急着怀疑算法。参数支持 <code>k=v&k=v</code> 或 JSON；嵌套 JSON 会按 <code>a.b</code> 扁平化。输出的「可直接用」页签包含 Python / CryptoJS 对照代码。</p>' +
+      '<p><b>边界</b>：工具只按你选的规则计算，不自动识别目标站点的规则；MD5/SHA/SM3/HMAC 的结果可用于对照验证。</p>',
     handler: function (params, secret, opts) {
       opts = opts || {};
       const raw = String(params == null ? '' : params).trim();

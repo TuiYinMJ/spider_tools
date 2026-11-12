@@ -481,6 +481,12 @@
     const host = ctx.customHost;
     SK.dom.clear(host);
     const STORE_KEY = 'sandbox:code';
+    /* 和标准工具页一致：小按钮带短标签，避免只有 📂 / ✨ / ⌫ 三个图标 */
+    const pgBtn = (ico, label, title, onClick) =>
+      el('button', { class: 'icon-btn icon-label', title, onClick }, [
+        el('span', { class: 'il-ico', text: ico }),
+        el('span', { class: 'il-txt', text: label }),
+      ]);
 
     /* ---------------- 编辑器 ---------------- */
     const gutter = el('div', { class: 'pg-gutter', text: '1' });
@@ -501,9 +507,9 @@
       el('div', { class: 'pane-head' }, [
         el('span', { class: 'pane-title', text: '脚本' }),
         el('span', { class: 'pane-spacer' }),
-        el('button', { class: 'icon-btn', text: '📂', title: '载入 .js 文件', onClick: () => filePicker.click() }),
-        el('button', { class: 'icon-btn', text: '✨', title: '内置示例', onClick: (e) => openSampleMenu(e.target) }),
-        el('button', { class: 'icon-btn', text: '⌫', title: '清空', onClick: () => { ta.value = ''; refresh(); save(); } }),
+        pgBtn('📂', '文件', '载入 .js 文件', () => filePicker.click()),
+        pgBtn('✨', '示例', '内置示例', (e) => openSampleMenu(e.currentTarget)),
+        pgBtn('⌫', '清空', '清空编辑器', () => { ta.value = ''; refresh(); save(); }),
       ]),
       edWrap,
       edFoot,
@@ -528,7 +534,7 @@
         el('span', { class: 'pane-title', text: '输出（V8 沙箱）' }),
         el('span', { class: 'pane-spacer' }),
         el('button', { class: 'btn tiny', text: '↗ 发送', title: '把输出文本发送到其他工具', onClick: sendOut }),
-        el('button', { class: 'icon-btn', text: '⌫', title: '清空输出', onClick: () => { SK.dom.clear(conBody); conFoot.textContent = ''; } }),
+        pgBtn('⌫', '清空', '清空输出', () => { SK.dom.clear(conBody); conFoot.textContent = ''; }),
       ]),
       conBody,
       conFoot,

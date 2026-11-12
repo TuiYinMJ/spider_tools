@@ -43,6 +43,7 @@
       const tool = SK.tools.byId[st.tool];
       if (!tool) { problems.push({ i: i, tool: st.tool, reason: '工具不存在（可能已改名或移除）' }); return; }
       if (tool.custom) { problems.push({ i: i, tool: st.tool, name: tool.name, reason: '需要交互界面，不能在配方里自动跑' }); return; }
+      if (typeof tool.handler !== 'function') { problems.push({ i: i, tool: st.tool, name: tool.name, reason: '工具未定义处理函数' }); return; }
       const n = (tool.inputs || []).length;
       if (n > 1 && st.input == null) { problems.push({ i: i, tool: st.tool, name: tool.name, reason: '有 ' + n + ' 个输入框，需要指定上一步结果喂给哪一个' }); return; }
       if (st.input != null && st.input >= n) { problems.push({ i: i, tool: st.tool, name: tool.name, reason: '指定的输入框下标 ' + st.input + ' 越界' }); return; }
@@ -57,19 +58,74 @@
     return o;
   }
 
-  /* 从结果里取出该步要接力的文本 */
+  /* 配方运行框的「填入示例」：用第一步工具的样例填初始输入，避免为了试配方还要去别的工具取样例 */
+  function sampleForTool(tool) {
+    if (!tool || !SK.samples || !SK.samples.resolve) return '';
+    const resolve = (key) => {
+      if (!key) return '';
+      if (typeof key === 'object') {
+        if (key.by) {
+          const first = Object.keys(key.map || {}).map((k) => key.map[k])[0];
+          return resolve(first || key.default);
+        }
+        return resolve(key.default);
+      }
+      try { return SK.samples.resolve(key) || ''; } catch (e) { return ''; }
+    };
+    for (const spec of tool.inputs || []) {
+      let key = spec.sample;
+      if (!key && !spec.small && !spec.binary) key = tool.sample;
+      const text = resolve(key);
+      if (text) return text;
+    }
+    return resolve(tool.sample);
+  }
+
+  /* 把某一路输出序列化成可接力的文本：文本直接用，表格转 CSV，fields 转 k: v，tree 转 JSON。 */
+  function outText(o) {
+    if (!o) return '';
+    if (typeof o.text === 'string' && o.text !== '') return o.text;
+    const d = o.data;
+    if (o.view === 'fields' && Array.isArray(d)) return d.map((f) => f.k + ': ' + f.v).join('\n');
+    if (o.view === 'table' && d && Array.isArray(d.rows)) {
+      const cols = d.columns || [];
+      const esc = (v) => {
+        const s = v == null ? '' : String(v);
+        return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+      };
+      const val = (row, c) => (Array.isArray(row) ? row[c.index] : row[c.key]);
+      const head = cols.map((c) => esc(c.label)).join(',');
+      return [head].concat(d.rows.map((r) => cols.map((c) => esc(val(r, c))).join(','))).join('\n');
+    }
+    if (o.view === 'tree' || o.view === 'json') {
+      try { return JSON.stringify(d, null, 2); } catch (e) {}
+    }
+    return '';
+  }
+
+  /* 从结果里取出该步要接力的文本。
+     支持 'text' / 'code' / 页签下标 / 页签 label；handler 的 tabs 也算。 */
   function pickOut(res, want) {
     if (res == null) return '';
     if (typeof res === 'string') return res;
     if (want === 'code' && res.code !== undefined) return String(res.code);
     if (Array.isArray(res.outputs) && res.outputs.length) {
-      if (typeof want === 'number' && res.outputs[want]) return String(res.outputs[want].text == null ? '' : res.outputs[want].text);
+      if (typeof want === 'number' && res.outputs[want]) return outText(res.outputs[want]);
       if (typeof want === 'string' && want !== 'text' && want !== 'code') {
         const hit = res.outputs.find((o) => o.label === want);
-        if (hit) return String(hit.text == null ? '' : hit.text);
+        if (hit) return outText(hit);
       }
-      const first = res.outputs.find((o) => typeof o.text === 'string');
-      if (first) return first.text;
+      const first = res.outputs.map(outText).find(Boolean);
+      if (first) return first;
+    }
+    if (Array.isArray(res.tabs) && res.tabs.length) {
+      if (typeof want === 'number' && res.tabs[want]) return outText(res.tabs[want]);
+      if (typeof want === 'string' && want !== 'text' && want !== 'code') {
+        const hit = res.tabs.find((o) => o.label === want);
+        if (hit) return outText(hit);
+      }
+      const firstText = res.tabs.map(outText).find(Boolean);
+      if (firstText) return firstText;
     }
     if (res.text !== undefined) return String(res.text);
     if (res.code !== undefined) return String(res.code);
@@ -98,11 +154,43 @@
       onStep(i, 'run', tool.name + (Object.keys(item.step.opts || {}).length ? '（已存选项）' : '（默认选项）'));
       let res;
       try {
-        /* 与 panel.js 保持一致：values.concat([opts, hooks, ctx]) */
-        const args = (tool.inputs || []).length > 1
-          ? (tool.inputs || []).map((inp, idx) => (idx === (item.step.input || 0) ? text : '')).concat([opts])
-          : [text, opts];
-        res = await SK.exec.call(tool.handler, args, { timeout: 120000 });
+        const values = (tool.inputs || []).length > 1
+          ? (tool.inputs || []).map((inp, idx) => (idx === (item.step.input || 0) ? text : ''))
+          : [text];
+        /* inline 工具依赖 DOM / 模块闭包（例如 selector 的 DOMParser、frida 的模板数组），
+           序列化进 Worker 会直接失去引用。配方里对 inline 工具在主线程直接调用，
+           其余工具继续走应用同一条 Worker 路径。 */
+        let ctx = null;
+        if (tool.inline) {
+          ctx = {
+            tool: tool,
+            opts: opts,
+            out: document.createElement('div'),
+            outMeta: document.createElement('div'),
+            outHead: document.createElement('div'),
+            state: {},
+            inputs: [],
+            editors: [],
+            render: function () {},
+            error: function () {},
+            run: function () {},
+            touch: function () {},
+            toast: SK.ui && SK.ui.toast ? SK.ui.toast : function () {},
+            fmtNum: SK.dom.fmtNum,
+            fmtBytes: SK.dom.fmtBytes,
+          };
+          res = await tool.handler.apply(null, values.concat([opts, {
+            progress: function () {},
+            cancelled: function () { return !!(ctl.cancelled && ctl.cancelled()); },
+          }, ctx]));
+        } else {
+          res = await SK.exec.call(tool.handler, values.concat([opts]), { timeout: 120000 });
+        }
+        /* 和 panel.js 一致：有些工具（如代码分享）靠 post 才拿到最终文本 */
+        if (typeof tool.post === 'function') {
+          ctx = ctx || { tool: tool, opts: opts, toast: function () {} };
+          res = tool.post(res, ctx) || res;
+        }
       } catch (e) {
         onStep(i, 'fail', e && e.message ? e.message : String(e));
         return { ok: false, failedAt: i, skipped: skipped, text: text, steps: trace };
@@ -113,8 +201,8 @@
       }
       const out = pickOut(res, item.step.out);
       trace.push({ i: i, tool: tool.id, name: tool.name, out: out });
-      if (!out && !(res && (res.tabs || res.outputs))) {
-        onStep(i, 'fail', '该步没有文本输出，无法接力（可在配方里指定 out 取某一路）');
+      if (!out) {
+        onStep(i, 'fail', '该步没有可接力的文本输出（可在配方里指定页签名/下标，换成文本或表格视图）');
         return { ok: false, failedAt: i, skipped: skipped, text: text, steps: trace };
       }
       text = out;
@@ -126,6 +214,9 @@
   /* 配方运行对话框 */
   function openRunDialog(recipe) {
     const runModalRef = {};
+    const firstStep = normalizeSteps(recipe.steps)[0];
+    const firstTool = firstStep ? SK.tools.byId[firstStep.tool] : null;
+    const sampleText = sampleForTool(firstTool);
     const input = el('textarea', {
       class: 'recipe-input',
       placeholder: '初始输入（第一步工具的输入内容）…',
@@ -150,6 +241,15 @@
       el('div', { class: 'chips-row', style: { justifyContent: 'flex-start', margin: '10px 0' } }, [
         runBtn,
         cancelBtn,
+        sampleText ? el('button', {
+          class: 'btn tiny',
+          text: '✨ 填入示例',
+          title: '填入第一步工具的内置样例（' + firstTool.name + '）',
+          onClick: () => {
+            input.value = sampleText;
+            SK.ui.toast('已填入「' + firstTool.name + '」的示例输入', 'ok');
+          },
+        }) : null,
         el('button', { class: 'btn', text: '⧉ 复制结果', onClick: () => outBox.value && SK.dom.copy(outBox.value).then(() => SK.ui.toast('已复制', 'ok')) }),
         el('button', { class: 'btn', text: '↗ 结果送入工具', onClick: () => { if (!outBox.value) return SK.ui.toast('先运行出结果', 'warn'); const last = normalizeSteps(recipe.steps).slice(-1)[0]; const tid = last && last.tool; if (!tid || !SK.tools.byId[tid]) return SK.ui.toast('末步工具不存在', 'warn'); SK.inject = { toolId: tid, text: outBox.value, from: 'recipe' }; location.hash = '#/' + tid; if (runModalRef.close) runModalRef.close(); } }),
       ]),
@@ -267,9 +367,20 @@
       }
       const outSel = el('select', { class: 'opt-select' });
       [{ v: 'text', t: '取主输出' }, { v: 'code', t: '取代码输出' }].forEach((x) => outSel.appendChild(el('option', { value: x.v, text: x.t })));
-      outSel.value = st.out || 'text';
-      outSel.addEventListener('change', () => { st.out = outSel.value; });
-      optBar.appendChild(outSel);
+      outSel.value = typeof st.out === 'string' && (st.out === 'text' || st.out === 'code') ? st.out : 'text';
+      const outCustom = el('input', {
+        class: 'opt-text',
+        type: 'text',
+        placeholder: '或填页签名 / 下标',
+        value: typeof st.out === 'number' ? String(st.out) : (typeof st.out === 'string' && st.out !== 'text' && st.out !== 'code' ? st.out : ''),
+      });
+      outSel.addEventListener('change', () => { st.out = outSel.value; outCustom.value = ''; });
+      outCustom.addEventListener('change', () => {
+        const v = outCustom.value.trim();
+        if (!v) { st.out = outSel.value; return; }
+        st.out = /^\d+$/.test(v) ? Number(v) : v;
+      });
+      optBar.appendChild(el('span', { class: 'opt' }, [el('span', { class: 'opt-label', text: '接力输出' }), outSel, outCustom]));
     }
 
     const syncBar = () => {

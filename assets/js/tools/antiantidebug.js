@@ -14,7 +14,7 @@
     aliases: 'anti debug 反调试 绕过 无限debugger 检测 突破 反反调试',
     keywords: ['反调试', 'debugger', '绕过', '无限debugger', '检测', '断点', 'js逆向'],
     desc: '生成绕过站点反调试的注入脚本：Function 构造器陷阱、定时器 debugger 丢弃、toString 伪装、控制台检测禁用，支持指定域名作用域（eval 默认不接管，避免破坏 direct eval 语义）',
-    sample: 'texta',
+    sample: 'antiDomains',
     hint: '生成的脚本用于 DevTools Snippets 或油猴（含 ==UserScript== 头）',
     inputs: [{ id: 'in', label: '作用域名（每行一个，油猴 @match 用）', placeholder: 'example.com\n*.example.com', small: true }],
     allowEmpty: true,

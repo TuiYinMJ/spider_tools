@@ -24,6 +24,15 @@
       { id: 'width', type: 'number', label: '换行宽度', value: 100, min: 40, max: 200 },
       { id: 'comment', type: 'toggle', label: '加注释', value: true, title: '在顶部写入来源 URL / 方法等说明' },
     ],
+    help:
+      '<h4>粘什么</h4>' +
+      '<p>Chrome DevTools → Network → 右键请求 → Copy as cURL（bash / cmd / PowerShell 都支持），直接贴进来。工具会自动拆 query、headers、cookie、json / form / multipart 请求体。</p>' +
+      '<h4>选项</h4>' +
+      '<ul><li><b>用 Session</b>：生成 <code>requests.Session()</code>，适合连续请求保持 Cookie</li>' +
+      '<li><b>Cookies 单独变量</b>：Cookie 从 headers 里拆出来，方便单独改</li>' +
+      '<li><b>响应变量 / 换行宽度 / 加注释</b>：控制生成代码的可读性</li></ul>' +
+      '<h4>保真检查</h4>' +
+      '<p>生成后会逐项核对 URL、方法、Header、Cookie、Body 是否带全；UA-CH（sec-ch-ua 等）缺失会提示。它是「代码文本的保真」，不等于目标站点一定放行；登录态、签名、风控仍要在目标环境验证。</p>',
     handler: function (input, opts) {
       const raw = String(input == null ? '' : input);
       const p = SK.net.parseCurl(raw);
@@ -83,6 +92,12 @@
       { id: 'name', type: 'text', label: 'Spider 名', value: '' , placeholder: '留空按域名自动生成' },
       { id: 'task', type: 'toggle', label: '生成 task 版', value: false, title: '生成 feapder.Task 批量导入格式' },
     ],
+    help:
+      '<h4>两种产物</h4>' +
+      '<ul><li><b>AirSpider</b>（默认）：一个可直接改 <code>start_requests</code> / <code>parse</code> 的爬虫类，适合单接口调试</li>' +
+      '<li><b>task 版</b>：生成 <code>feapder.Task</code> 批量导入格式，适合把一批请求塞进任务队列</li></ul>' +
+      '<h4>依赖与限制</h4>' +
+      '<p>产物需要本机装 <code>feapder</code> 才能跑；请求里的 headers / cookies / data / json 会按 cURL 原样生成。生成的是骨架，解析字段和翻页逻辑仍要你按真实响应补。</p>',
     handler: function (input, opts) {
       const raw = String(input == null ? '' : input);
       const p = SK.net.parseCurl(raw);
@@ -114,6 +129,7 @@
     aliases: 'curl scrapy fetch axios har 转换',
     keywords: ['curl', 'scrapy', 'fetch', 'axios', 'har', 'js', '转换'],
     desc: '一份 cURL 转 Scrapy / fetch / axios / HAR，方便对照排查“为什么代码请求不到、浏览器能”',
+    hint: 'Node 下保留 Cookie 头；浏览器 / Worker 下 Cookie 是禁用头，只能靠 credentials:"include"',
     sample: 'curl',
     inputs: [CURL_INPUT],
     options: [
@@ -126,6 +142,12 @@
       const js = values.target === 'fetch' || values.target === 'axios';
       (js ? bar.show : bar.hide)(['mode']);
     },
+    help:
+      '<h4>目标怎么选</h4>' +
+      '<ul><li><b>requests / httpx / aiohttp / Scrapy</b>：Python 运行时，Cookie 会写进 headers 或独立变量</li>' +
+      '<li><b>fetch / axios</b>：切到「浏览器 / Worker」时 Cookie 是 forbidden header，只能靠 <code>credentials:"include"</code>；Node 18+ 保留 Cookie 头</li>' +
+      '<li><b>HAR</b>：把 cURL 转成一条 HAR entry，方便导入 DevTools / 回放工具</li></ul>' +
+      '<p>「格式化 JSON」控制生成代码里的 JSON 请求体缩进；关闭后输出单行，适合贴进压缩过的脚本。保真检查会列出 Cookie、Header、Body 等是否完整带过去。</p>',
     handler: function (input, opts) {
       const raw = String(input == null ? '' : input);
       const p = SK.net.parseCurl(raw);
@@ -133,7 +155,8 @@
       /* separateCookies 必须显式给值：net.js 的判定是 === false 才把 Cookie 写进头、
          === true 才生成独立 cookies 变量。传 undefined 等于两条路都不走 → 登录态静默丢失。 */
       /* mode 默认 node：爬虫脚本绝大多数跑在 Node，Cookie 头必须留着 */
-      const o = { spiderName: opts.name || undefined, separateCookies: false, mode: opts.mode || 'node' };
+      const pretty = opts.pretty !== false;
+      const o = { spiderName: opts.name || undefined, separateCookies: false, mode: opts.mode || 'node', prettyJson: pretty };
       let r, lang = 'js';
       if (opts.target === 'requests') { r = SK.net.toRequests(p, o); lang = 'python'; }
       else if (opts.target === 'httpx') { r = SK.net.toHttpx(p, o); lang = 'python'; }
@@ -142,11 +165,16 @@
       else if (opts.target === 'axios') { r = SK.net.toAxios(p, o); lang = 'js'; }
       else if (opts.target === 'har') {
         /* toHar 可能直接返回对象；原实现只对字符串做 JSON.parse，对象会原样透出，
-           渲染层拿到非字符串就一片空白。这里统一转成格式化后的字符串。 */
+           渲染层拿到非字符串就一片空白。这里统一转成字符串，并让「格式化 JSON」真正生效。 */
         const h = SK.net.toHar(p);
-        r = { code: typeof h === 'string' ? h : JSON.stringify(h, null, 2), warnings: [] };
+        let code;
+        if (typeof h === 'string') {
+          try { code = JSON.stringify(JSON.parse(h), null, pretty ? 2 : 0); } catch (e) { code = h; }
+        } else {
+          code = JSON.stringify(h, null, pretty ? 2 : 0);
+        }
+        r = { code: code, warnings: [] };
         lang = 'json';
-        try { r.code = JSON.stringify(JSON.parse(r.code), null, 2); } catch (e) {}
       } else { r = SK.net.toFetch(p, o); lang = 'js'; }
       const out = typeof r.code === 'string' ? r.code : JSON.stringify(r.code, null, 2);
       const env = SK.gen.ENV[opts.target];
@@ -178,11 +206,19 @@
     icon: '↺',
     aliases: 'har curl 转换 复制',
     keywords: ['har', 'curl', '转换', 'devtools'],
-    desc: '把 DevTools 导出的 HAR 里任意一条请求还原成 cURL，支持整份 HAR（取第一条请求）',
+    desc: '把 DevTools 导出的 HAR 里任意一条请求还原成 cURL：支持整份 HAR、URL/方法过滤和选择第几条，不再只能取第一条',
+    hint: '整份 HAR 可先按 URL/方法过滤，再选第几条；「请求列表」页签能看到全部候选',
     inputs: [{ id: 'in', label: 'HAR / 单条 entry JSON', placeholder: '{"log":{"entries":[…]}}', sample: 'har' }],
     options: [
-      { id: 'pretty', type: 'toggle', label: '多行输出', value: true },
+      { id: 'filter', type: 'text', label: '请求过滤', value: '', placeholder: 'URL 或方法，如 api.example.com / POST' },
+      { id: 'index', type: 'number', label: '选第几条（匹配后）', value: 1, min: 1, max: 100000, title: '从 1 开始；先用过滤缩小范围，再看「请求列表」确认顺序' },
+      { id: 'pretty', type: 'toggle', label: '多行 cURL', value: true },
     ],
+    help:
+      '<h4>从整份 HAR 里挑请求</h4>' +
+      '<p>默认按 HAR 顺序取第 1 条。请求很多时先填「请求过滤」（URL 片段或方法，如 <code>api.example.com</code> / <code>POST</code>），再用「选第几条」选中匹配后的第 N 条。</p>' +
+      '<p>「请求列表」页签会列出所有匹配请求的序号、方法、URL 和状态码，照着序号填即可。也可以直接贴单条 entry JSON。</p>' +
+      '<p>多行 cURL 关闭后输出单行，方便贴进脚本或聊天窗口。</p>',
     handler: function (input, opts) {
       const text = String(input == null ? '' : input);
       let data;
@@ -191,25 +227,70 @@
       } catch (e) {
         return { error: 'HAR JSON 解析失败：' + e.message };
       }
-      let entry = data;
-      if (data.log && data.log.entries) {
-        if (!data.log.entries.length) return { error: 'HAR 里没有条目' };
-        entry = data.log.entries[0];
-      }
-      if (!entry || !entry.request) return { error: '不是有效的 HAR entry', hint: '需要包含 request 字段，或整份 HAR（log.entries）' };
+      let entries = null;
+      if (data && data.log && Array.isArray(data.log.entries)) entries = data.log.entries;
+      else if (data && Array.isArray(data.entries)) entries = data.entries;
+      else if (data && data.request) entries = [data];
+      if (!entries || !entries.length) return { error: 'HAR 里没有条目', hint: '支持整份 HAR（log.entries）或单条 entry（含 request 字段）' };
+
+      const kw = String(opts.filter || '').trim().toLowerCase();
+      const matched = kw
+        ? entries.filter((e) => {
+            const r = e && e.request;
+            return r && ((String(r.url || '') + ' ' + String(r.method || '')).toLowerCase().indexOf(kw) >= 0);
+          })
+        : entries.slice();
+      if (!matched.length) return { error: '过滤后没有匹配请求', hint: '换个关键字，或清空「请求过滤」选择全部' };
+
+      let idx = Number(opts.index || 1);
+      if (!isFinite(idx)) idx = 1;
+      idx = Math.max(1, Math.min(matched.length, Math.floor(idx)));
+      const entry = matched[idx - 1];
+      if (!entry || !entry.request) return { error: '第 ' + idx + ' 条不是有效的 HAR entry' };
       const req = SK.net.fromHarEntry(entry);
       const curl = SK.net.formatCurl(req, { pretty: !!opts.pretty });
+      const list = matched.slice(0, 500).map((e, i) => ({
+        i: i + 1,
+        method: (e.request && e.request.method) || '',
+        url: (e.request && e.request.url) || '',
+        status: e.response && e.response.status != null ? e.response.status : '',
+      }));
+      const headCount = (e) => {
+        const h = e.request.headers;
+        return Array.isArray(h) ? h.length : Object.keys(h || {}).length;
+      };
       return {
         text: curl,
         lang: 'shell',
-        stats: [{ k: '方法', v: entry.request.method }, { k: 'URL', v: String(entry.request.url).slice(0, 80) }],
-        tabs: [{ label: '请求信息', view: 'fields', data: [
-          { k: 'URL', v: entry.request.url, copy: true },
-          { k: 'Method', v: entry.request.method },
-          { k: 'Headers', v: (SK.harUtils ? SK.harUtils.toArr(entry.request.headers).length : (Array.isArray(entry.request.headers) ? entry.request.headers.length : Object.keys(entry.request.headers || {}).length)) + ' 个' },
-          { k: 'Cookies', v: (entry.request.cookies || []).map((c) => c.name + '=' + c.value).join('; '), copy: true },
-          { k: 'Status', v: entry.response ? entry.response.status : '-' },
-        ] }],
+        stats: [
+          { k: '全部', v: entries.length },
+          kw ? { k: '匹配', v: matched.length } : null,
+          { k: '选中', v: '#' + idx, level: 'ok' },
+          { k: '方法', v: entry.request.method || '-' },
+        ].filter(Boolean),
+        notices: matched.length > 1
+          ? [{ level: 'info', msg: '匹配到 ' + matched.length + ' 条请求，当前选第 ' + idx + ' 条；可在「请求列表」页签确认序号，或改「选第几条」' }]
+          : [],
+        tabs: [
+          { label: '请求信息', view: 'fields', data: [
+            { k: 'URL', v: entry.request.url, copy: true },
+            { k: 'Method', v: entry.request.method },
+            { k: 'Headers', v: headCount(entry) + ' 个' },
+            { k: 'Cookies', v: (entry.request.cookies || []).map((c) => c.name + '=' + c.value).join('; '), copy: true },
+            { k: 'Status', v: entry.response ? entry.response.status : '-' },
+          ] },
+          { label: '请求列表 (' + matched.length + ')', view: 'table', data: {
+            columns: [
+              { key: 'i', label: '#', width: '60px' },
+              { key: 'method', label: '方法', width: '80px' },
+              { key: 'url', label: 'URL' },
+              { key: 'status', label: '状态', width: '80px' },
+            ],
+            rows: list,
+            name: 'har-requests',
+            filterHint: '过滤 URL / 方法（例：api / POST）',
+          } },
+        ],
       };
     },
   });

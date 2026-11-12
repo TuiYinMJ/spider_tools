@@ -41,7 +41,7 @@
     pc: 'PC 逆向',
     spider: 'URL 与爬虫',
     time: '时间工具',
-    misc: '时间与其他',
+    misc: '其他工具',
   };
 
   function groupName(id) {

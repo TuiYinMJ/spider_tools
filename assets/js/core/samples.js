@@ -43,6 +43,44 @@ function get(url, data) {
   return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Sign': sign(data, 'SECRET_123'), 'X-Timestamp': ts }, body: body });
 }`;
 
+  /* 补环境专供样例：必须包含 navigator/document/location/window 等属性访问，
+     否则「环境扫描」的默认 ✨ 会填进通用 js 样例，然后报「没有扫描到浏览器环境属性访问」。 */
+  S.jsEnv = `function collectFp() {
+  const fp = {
+    ua: navigator.userAgent,
+    platform: navigator.platform,
+    language: navigator.language,
+    languages: navigator.languages,
+    webdriver: navigator.webdriver,
+    plugins: navigator.plugins.length,
+    concurrency: navigator.hardwareConcurrency,
+    deviceMemory: navigator.deviceMemory,
+    vendor: navigator.vendor,
+    maxTouchPoints: navigator.maxTouchPoints,
+    screen: [screen.width, screen.height, screen.availHeight, screen.colorDepth],
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    cookie: document.cookie,
+    referrer: document.referrer,
+    hidden: document.hidden,
+    visibility: document.visibilityState,
+    href: location.href,
+    origin: location.origin,
+    hash: location.hash,
+    historyLength: history.length,
+    now: performance.now(),
+    inner: [window.innerWidth, window.innerHeight],
+    dpr: window.devicePixelRatio,
+    secure: window.isSecureContext
+  };
+  return fp;
+}
+
+fetch('/api/login', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json', 'x-fingerprint': JSON.stringify(collectFp()) },
+  body: JSON.stringify({ user: 'demo', ts: Date.now() })
+});`;
+
   S.obf = `var _0x4a2f = ['\\x41\\x62\\x63', '\\x44\\x65\\x66', 'a' + 'b' + 'c', String.fromCharCode(104, 101, 108, 108, 111), 0x1f + 0x2, '\\u4e2d\\u6587'];
 function _0x1b3c(a) { return _0x4a2f[a]; }
 window['\\x66\\x65\\x74\\x63\\x68'](_0x1b3c(0x0), { 'H\\x65\\x61\\x64\\x65\\x72': 1000 + 0x10 });
@@ -110,6 +148,13 @@ https://www.example.com/api/detail?id=1001
 https://www.example.com/api/login
 Cookie: a=1
 https://www.example.com/api/list?page=2`;
+
+  /* 脚本生成类工具的可选参数样例：不再是通用 URL 文本，避免 ✨ 把网址塞进“域名/对象路径”输入框 */
+  S.antiDomains = `example.com
+*.example.com`;
+  S.memPaths = `app.store
+__INITIAL_STATE__
+window.__DATA__`;
 
   S.textb = `https://www.example.com/api/list?page=1
 https://www.example.com/api/detail?id=1002

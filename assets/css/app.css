@@ -485,18 +485,51 @@ kbd {
   border-color: var(--line-2);
 }
 
-.sb-item .sb-name {
+.sb-item .sb-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
   flex: 1;
+  min-width: 0;
+}
+
+.sb-item .sb-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* 搜索命中项：多一行「分组 · 说明」，避免同名工具无从区分 */
+.sb-item .sb-sub {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
 .sb-item.on {
   color: var(--text);
   background: var(--accent-soft);
   box-shadow: inset 0 0 0 1px rgba(79, 140, 255, 0.22);
+}
+
+/* 键盘选中项（与当前路由的 on 状态区分开） */
+.sb-item.kbd {
+  color: var(--text);
+  background: var(--panel-3);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.sb-hit-hint {
+  padding: 10px 8px 2px;
+  font-size: 10.5px;
+  color: var(--muted);
+  text-align: center;
+  letter-spacing: 0.2px;
+  user-select: none;
 }
 
 .sb-item.on .sb-ico {
@@ -770,6 +803,26 @@ kbd {
 .icon-btn:hover {
   color: var(--text);
   background: var(--panel-3);
+}
+
+/* 带短标签的图标按钮（输入框右上角：历史 / 插入 / 常用值 / 文件 / 示例 / 清空） */
+.icon-btn.icon-label {
+  display: inline-flex;
+  width: auto;
+  height: 24px;
+  padding: 0 5px;
+  gap: 3px;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.icon-label .il-txt {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.icon-btn.icon-label:hover .il-txt {
+  color: var(--text);
 }
 
 /* ---------------------------------------------------------------- 首页 */
@@ -1233,11 +1286,18 @@ div.opt-seg:empty {
 
 /* ---------------------------------------------------------------- 运行行 */
 .run-row {
+  position: sticky;
+  top: -1px;
+  z-index: 15;
   display: flex;
   align-items: center;
   gap: 10px;
   flex: none;
-  padding: 0 2px 12px;
+  /* 吸顶时用半透明底色：长输入/长选项把运行按钮滚出视野后仍能一键运行 */
+  padding: 8px 2px 12px;
+  margin-top: -8px;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: blur(10px);
 }
 
 .btn-run {
@@ -1708,6 +1768,32 @@ div.opt-seg:empty {
   color: var(--accent);
   background: var(--accent-soft);
   font-weight: 600;
+}
+
+/* 输出视图多于 4 个时用下拉，避免页签条溢出后“只能看到第一个页签” */
+.out-tab-select {
+  max-width: 180px;
+  height: 24px;
+  padding: 0 6px;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+  outline: 0;
+  cursor: pointer;
+}
+
+.out-tab-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.out-tab-count {
+  flex: none;
+  font-size: 10.5px;
+  color: var(--muted);
+  white-space: nowrap;
 }
 
 .out-tools {
@@ -3035,6 +3121,14 @@ div.opt-seg:empty {
   .run-row {
     flex-wrap: wrap;
   }
+  /* 手机宽度放不下 6 个带字动作：退回纯图标，避免标题和按钮被挤掉 */
+  .icon-label .il-txt {
+    display: none;
+  }
+  .icon-btn.icon-label {
+    width: 24px;
+    padding: 0;
+  }
   .progress {
     order: 9;
     width: 100%;
@@ -3042,6 +3136,9 @@ div.opt-seg:empty {
   }
   .out-tools .mini-search {
     width: 96px;
+  }
+  .out-tab-count {
+    display: none;
   }
 }
 
@@ -3056,13 +3153,17 @@ div.opt-seg:empty {
 }
 
 /* ---------------------------------------------------------------- 首页搜索 */
+.hero-search-wrap {
+  position: relative;
+  max-width: 560px;
+  margin-top: 22px;
+}
+
 .hero-search {
   display: flex;
   align-items: center;
   gap: 8px;
-  max-width: 560px;
   height: 44px;
-  margin-top: 22px;
   padding: 0 14px;
   background: var(--panel);
   border: 1px solid var(--line-2);
@@ -3093,6 +3194,87 @@ div.opt-seg:empty {
 
 .hero-search input::-webkit-search-cancel-button {
   -webkit-appearance: none;
+}
+
+/* 首页搜索建议：实时候选 + 键盘选中 */
+.hero-suggest {
+  display: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 40;
+  max-height: 350px;
+  overflow: auto;
+  padding: 5px;
+  background: var(--panel);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow);
+}
+
+.hero-suggest.open {
+  display: block;
+}
+
+.hs-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 9px;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: var(--r-xs);
+}
+
+.hs-item:hover,
+.hs-item.on {
+  background: var(--accent-soft);
+}
+
+.hs-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+
+.hs-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.hs-desc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.hs-meta {
+  flex: none;
+  margin-top: 1px;
+  padding: 2px 7px;
+  font-size: 10px;
+  color: var(--muted);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+.hs-empty {
+  padding: 16px 12px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--muted);
+  text-align: center;
 }
 
 /* ---------------------------------------------------------------- 分享页 */

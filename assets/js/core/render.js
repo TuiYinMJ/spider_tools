@@ -49,10 +49,30 @@
     let activeIndex = 0;
     const instances = [];
 
+    /* 输出视图超过 4 个时不再横排页签：页签条会溢出成不可见的横向滚动区，
+       用户以为只有第一个视图（Frida 7 个模板、JS Hook 26 个模板都踩过）。
+       改成下拉选择，所有视图都可达，且不占横向空间。 */
+    let tabSelect = null;
+    if (data.outputs.length > 4) {
+      tabSelect = el('select', {
+        class: 'out-tab-select',
+        title: '切换输出视图（共 ' + data.outputs.length + ' 个）',
+        onChange: () => setTab(Number(tabSelect.value)),
+      });
+      data.outputs.forEach((o, i) => {
+        tabSelect.appendChild(el('option', { value: String(i), text: o.label || '输出 ' + (i + 1) }));
+      });
+      tabsEl.appendChild(tabSelect);
+      tabsEl.appendChild(el('span', { class: 'out-tab-count', text: data.outputs.length + ' 个视图' }));
+    }
+    const tabButtons = [];
     data.outputs.forEach((o, i) => {
       const label = o.label || '输出 ' + (i + 1);
-      const btn = el('button', { class: 'out-tab', text: label, onClick: () => setTab(i) });
-      tabsEl.appendChild(btn);
+      if (!tabSelect) {
+        const btn = el('button', { class: 'out-tab', text: label, onClick: () => setTab(i) });
+        tabsEl.appendChild(btn);
+        tabButtons.push(btn);
+      }
       instances.push({ spec: o, host: el('div', { class: 'out-body' }), built: false });
     });
 
@@ -60,8 +80,9 @@
       active = i;
       instances.forEach((inst, k) => {
         inst.host.style.display = k === i ? '' : 'none';
-        tabsEl.children[k].classList.toggle('on', k === i);
       });
+      if (tabSelect) tabSelect.value = String(i);
+      else tabButtons.forEach((b, k) => b.classList.toggle('on', k === i));
       const inst = instances[i];
       if (!inst.built) {
         buildBody(inst, ctx);
@@ -108,18 +129,28 @@
             }
           } });
         toolsEl.appendChild(inp);
-        toolsEl.appendChild(el('button', { class: 'icon-btn', text: '↓', title: '下一个匹配', onClick: () => inst.viewer.nextHit(1) }));
-        toolsEl.appendChild(el('button', { class: 'icon-btn', text: '⤓', title: '仅显示匹配行（输入关键词后点此）', onClick: () => {
-            if (!inp.value) return SK.ui.toast('先输入关键词', 'warn');
-            const r = inst.viewer.filter(inp.value, {});
-            SK.ui.toast('匹配 ' + fmtNum(r.count) + ' 行' + (r.truncated ? '（已截断）' : ''), 'ok');
-          } }));
-        toolsEl.appendChild(el('button', { class: 'icon-btn', text: '✕', title: '取消过滤', onClick: () => inst.viewer.unfilter() }));
-        toolsEl.appendChild(el('button', { class: 'btn tiny', text: '复制筛选结果', title: '只复制当前过滤出来的行（默认“复制”始终是完整原文）', onClick: () => {
+        toolsEl.appendChild(el('button', { class: 'icon-btn', text: '↓', title: '定位下一个匹配', onClick: () => inst.viewer.nextHit(1) }));
+        /* 原来的 ⤓ / ✕ 图标与「下载」太像：改成文字按钮，明确是筛选而不是导出 */
+        const filtering = !!inst.viewer.isFiltered;
+        const clearBtn = el('button', { class: 'btn tiny', text: '清除', title: '恢复显示完整输出', style: { display: filtering ? '' : 'none' }, onClick: () => {
+            inst.viewer.unfilter();
+            clearBtn.style.display = 'none';
+            copyBtn.style.display = 'none';
+          } });
+        const copyBtn = el('button', { class: 'btn tiny', text: '复制筛选', title: '只复制当前过滤出来的行（顶部“复制”始终是完整原文）', style: { display: filtering ? '' : 'none' }, onClick: () => {
             const t = inst.viewer.getFilteredText();
             if (!t) return SK.ui.toast('没有可复制的内容', 'warn');
             copy(t).then(() => SK.ui.toast('已复制筛选结果 ' + fmtNum(t.split('\n').length) + ' 行', 'ok'));
+          } });
+        toolsEl.appendChild(el('button', { class: 'btn tiny', text: '筛选', title: '过滤输出，只显示包含关键词的行', onClick: () => {
+            if (!inp.value) return SK.ui.toast('先输入关键词', 'warn');
+            const r = inst.viewer.filter(inp.value, {});
+            clearBtn.style.display = '';
+            copyBtn.style.display = '';
+            SK.ui.toast('匹配 ' + fmtNum(r.count) + ' 行' + (r.truncated ? '（已截断）' : ''), 'ok');
           } }));
+        toolsEl.appendChild(clearBtn);
+        toolsEl.appendChild(copyBtn);
       }
       const txt = textareaOf(inst);
       if (txt) {

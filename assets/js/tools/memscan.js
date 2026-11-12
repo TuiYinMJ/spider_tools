@@ -17,7 +17,7 @@
     desc: '生成注入脚本：拦截对象属性写入与字符串出现位置，控制台 __sp("参数值") 反查它在哪被赋值——“加密参数在哪生成”的通杀辅助',
     /* 名称如实：它抓的是对象属性写入与字符串，抓不到闭包里的 let/const 局部变量 */
     capNote: '抓不到闭包内 let/const 变量；页面 load 之前就要注入',
-    sample: 'texta',
+    sample: 'memPaths',
     hint: '生成脚本粘到 DevTools Sources → Snippets 运行（或油猴 document-start），然后操作页面，最后 __sp() 搜索',
     inputs: [{ id: 'in', label: '额外监听的对象路径（可选，每行一个）', placeholder: 'app.store\n__INITIAL_STATE__', small: true }],
     allowEmpty: true,
