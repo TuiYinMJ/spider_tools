@@ -1,0 +1,14 @@
+{
+  "name": "ziping-mingpan",
+  "version": "2.0.0",
+  "private": true,
+  "description": "子平命盘 · 纯前端单引擎八字排盘与岁运推演（学者工具）",
+  "scripts": {
+    "generate": "node scripts/generate-data.js",
+    "test": "node tests/engine.test.js",
+    "serve": "node scripts/serve.js"
+  },
+  "devDependencies": {
+    "lunar-javascript": "^1.7.8"
+  }
+}
